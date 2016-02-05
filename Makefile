@@ -3,7 +3,12 @@ DESTDIR ?=
 BINDIR ?= $(PREFIX)/bin
 LIBDIR ?= $(PREFIX)/lib
 MANDIR ?= $(PREFIX)/share/man
-
+ifeq "$(CURL_VERSION)" ""
+CURL_VERSION := 7.47.0
+endif
+ifeq "$(LIBXML_VERSION)" ""
+LIBXML_VERSION := 2.9.3
+endif
 CFLAGS ?= -O3 -march=native -fomit-frame-pointer -pipe
 CFLAGS += -std=gnu99 -D_GNU_SOURCE
 CFLAGS += -pedantic -Wall -Wextra -Wno-language-extension-token
@@ -20,8 +25,13 @@ SDKROOT ?= $(shell xcodebuild -version -sdk macosx | sed -n 's/^Path: \(.*\)/\1/
 CFLAGS += -isysroot $(SDKROOT) -I$(SDKROOT)/usr/include/libxml2
 LDLIBS = -lcurl -lxml2 -lssl -lcrypto
 else
-CFLAGS += $(shell pkg-config --cflags libxml-2.0 2>/dev/null || echo -I/usr/include/libxml2) -I/usr/local/include
-LDLIBS = -lcurl $(shell pkg-config --libs libxml-2.0 2>/dev/null || echo -lxml2) -lssl -lcrypto
+CC := gcc -static-libgcc
+CFLAGS += -I./libxml2-$(LIBXML_VERSION)/include/ -I./curl-$(CURL_VERSION)/include/ -I/usr/include
+LDLIBS = ./curl-$(CURL_VERSION)/lib/.libs/libcurl.a ./libxml2-$(LIBXML_VERSION)/.libs/libxml2.a
+LDLIBS +=  /usr/lib/x86_64-linux-gnu/libdl.a /usr/lib/x86_64-linux-gnu/liblzma.a
+LDLIBS += /usr/lib/x86_64-linux-gnu/libm.a /usr/lib/x86_64-linux-gnu/libz.a
+LDLIBS += /usr/lib/x86_64-linux-gnu/libssl.a /usr/lib/x86_64-linux-gnu/libcrypto.a
+LDLIBS += -ldl -lm -lz -lssl -lcrypto
 ifeq ($(UNAME_S),OpenBSD)
 LDLIBS += -lkvm
 endif

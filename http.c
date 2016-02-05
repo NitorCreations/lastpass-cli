@@ -219,6 +219,14 @@ char *http_post_lastpass(const char *page, const struct session *session, size_t
 	return result;
 }
 
+int file_exist (const char *fname) {
+           FILE *file;
+           if ((file = fopen(fname, "r"))) {
+               fclose(file);
+               return 1;
+           }
+           return 0;
+}
 char *http_post_lastpass_v_noexit(const char *server, const char *page, const struct session *session, size_t *final_len, char **argv, int *curl_ret, long *http_code)
 {
 	_cleanup_free_ char *url = NULL;
@@ -262,6 +270,11 @@ char *http_post_lastpass_v_noexit(const char *server, const char *page, const st
 		postdata[len - 1] = '\0';
 
 	memset(&result, 0, sizeof(result));
+	if (file_exist ("/etc/pki/tls/certs/ca-bundle.crt")) {
+	  curl_easy_setopt(curl, CURLOPT_CAINFO, "/etc/pki/tls/certs/ca-bundle.crt");
+	} else if (file_exist ("/etc/ssl/certs/ca-certificates.crt")) {
+	  curl_easy_setopt(curl, CURLOPT_CAINFO, "/etc/ssl/certs/ca-certificates.crt");
+	}
 	curl_easy_setopt(curl, CURLOPT_URL, url);
 	curl_easy_setopt(curl, CURLOPT_USERAGENT, LASTPASS_CLI_USERAGENT);
 #if defined(DO_NOT_ENABLE_ME_MITM_PROXY_FOR_DEBUGGING_ONLY)
