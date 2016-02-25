@@ -52,8 +52,8 @@ struct node {
 	struct account *account;
 	bool shared;
 
-	struct node *first_child;
-	struct node *next_sibling;
+	struct list_head children;
+	struct list_head list;
 };
 
 static char *format_timestamp(char *timestamp, bool utc)
@@ -105,20 +105,23 @@ static void __insert_node(struct node *head,
 			  struct account *account)
 {
 	struct path_component *pc;
-	struct node *child;
+	struct node *child, *tmp;
 
 	/* iteratively build a tree from all the path components */
 	list_for_each_entry(pc, components, list) {
-		for (child = head->first_child; child; child = child->next_sibling) {
-			if (!strcmp(child->name, pc->component))
+		child = NULL;
+		list_for_each_entry(tmp, &head->children, list) {
+			if (!strcmp(tmp->name, pc->component)) {
+				child = tmp;
 				break;
+			}
 		}
 		if (!child) {
 			child = new0(struct node, 1);
 			child->shared= !!account->share;
 			child->name = xstrdup(pc->component);
-			child->next_sibling = head->first_child;
-			head->first_child = child;
+			INIT_LIST_HEAD(&child->children);
+			list_add_tail(&child->list, &head->children);
 		}
 		head = child;
 	}
@@ -128,9 +131,8 @@ static void __insert_node(struct node *head,
 	child->account = account;
 	child->shared= !!account->share;
 	child->name = xstrdup(account->name);
-	child->next_sibling = head->first_child;
-	head->first_child = child;
-
+	INIT_LIST_HEAD(&child->children);
+	list_add_tail(&child->list, &head->children);
 }
 
 static void insert_node(struct node *head, const char *path, struct account *account)
@@ -184,21 +186,23 @@ static void insert_node(struct node *head, const char *path, struct account *acc
 
 static void free_node(struct node *head)
 {
+	struct node *node, *tmp;
+
 	if (!head)
 		return;
-	for (struct node *node = head, *next_node = NULL; node; node = next_node) {
-		next_node = node->next_sibling;
-		free_node(node->first_child);
-		free(node->name);
-		free(node);
+
+	list_for_each_entry_safe(node, tmp, &head->children, list) {
+		free_node(node);
 	}
+	free(head->name);
+	free(head);
 }
 
 static void print_node(struct node *head, int level)
 {
 	struct node *node;
 
-	for (node = head; node; node = node->next_sibling) {
+	list_for_each_entry(node, &head->children, list) {
 		if (node->name) {
 			for (int i = 0; i < level; ++i)
 				printf("    ");
@@ -216,7 +220,7 @@ static void print_node(struct node *head, int level)
 			else
 				terminal_printf(TERMINAL_FG_BLUE TERMINAL_BOLD "%s" TERMINAL_RESET "\n", node->name);
 		}
-		print_node(node->first_child, level + 1);
+		print_node(node, level + 1);
 	}
 }
 
@@ -230,6 +234,13 @@ static char *get_display_fullname(struct account *account)
 		xasprintf(&fullname, "(none)/%s", account->fullname);
 
 	return fullname;
+}
+
+static int compare_account(const void *a, const void *b)
+{
+	struct account * const *acct_a = a;
+	struct account * const *acct_b = b;
+	return strcmp((*acct_a)->fullname, (*acct_b)->fullname);
 }
 
 int cmd_ls(int argc, char **argv)
@@ -254,6 +265,8 @@ int cmd_ls(int argc, char **argv)
 	enum color_mode cmode = COLOR_MODE_AUTO;
 	bool print_tree;
 	struct account *account;
+	_cleanup_free_ struct account **account_array = NULL;
+	int i, num_accounts;
 
 	while ((option = getopt_long(argc, argv, "lmu", long_options, &option_index)) != -1) {
 		switch (option) {
@@ -295,12 +308,28 @@ int cmd_ls(int argc, char **argv)
 
 	init_all(sync, key, &session, &blob);
 	root = new0(struct node, 1);
+	INIT_LIST_HEAD(&root->children);
 
 	/* '(none)' group -> search for any without group */
 	if (group && !strcmp(group, "(none)"))
 		group = "";
 
+	num_accounts = 0;
 	list_for_each_entry(account, &blob->account_head, list) {
+		num_accounts++;
+	}
+	i=0;
+	account_array = xcalloc(num_accounts, sizeof(struct account *));
+	list_for_each_entry(account, &blob->account_head, list) {
+		account_array[i++] = account;
+	}
+	qsort(account_array, num_accounts, sizeof(struct account *),
+	      compare_account);
+
+	for (i=0; i < num_accounts; i++)
+	{
+		struct account *account = account_array[i];
+
 		if (group) {
 			sub = strstr(account->fullname, group);
 			if (!sub || sub != account->fullname)
@@ -328,7 +357,7 @@ int cmd_ls(int argc, char **argv)
 		free(fullname);
 	}
 	if (print_tree)
-		print_node(root, -1);
+		print_node(root, 0);
 
 	free_node(root);
 	session_free(session);
