@@ -8,7 +8,7 @@ fi
 if ! [ -d libxml2-$LIBXML_VERSION ]; then
   wget -O - http://xmlsoft.org/sources/libxml2-$LIBXML_VERSION.tar.gz | tar -xvzf -
 fi
-(cd curl-$CURL_VERSION && ./configure --enable-static && make -j 8) &
+(cd curl-$CURL_VERSION && ./configure --enable-static --enable-static --disable-ldap --disable-rtsp --without-librtmp --without-libidn && make -j 8) &
 (cd libxml2-$LIBXML_VERSION && ./configure --enable-static && make -j 8) &
 wait
 export CURL_VERSION LIBXML_VERSION
