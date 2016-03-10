@@ -9,6 +9,8 @@ endif
 ifeq "$(LIBXML_VERSION)" ""
 LIBXML_VERSION := 2.9.3
 endif
+COMPDIR ?= $(shell pkg-config --variable=completionsdir bash-completion || echo /usr/share/bash-completion/completions)
+
 CFLAGS ?= -O3 -march=native -fomit-frame-pointer -pipe
 CFLAGS += -std=gnu99 -D_GNU_SOURCE
 CFLAGS += -pedantic -Wall -Wextra -Wno-language-extension-token
@@ -53,9 +55,10 @@ install-doc: doc-man
 
 install: all
 	@install -v -d "$(DESTDIR)$(BINDIR)" && install -m 0755 -v lpass "$(DESTDIR)$(BINDIR)/lpass"
+	@install -v -d "$(DESTDIR)$(COMPDIR)" && install -m 0644 -v contrib/lpass_bash_completion "$(DESTDIR)$(COMPDIR)/lpass"
 
 uninstall:
-	@rm -vrf "$(DESTDIR)$(MANDIR)/man1/lpass.1" "$(DESTDIR)$(BINDIR)/lpass"
+	@rm -vrf "$(DESTDIR)$(MANDIR)/man1/lpass.1" "$(DESTDIR)$(BINDIR)/lpass" "$(DESTDIR)$(COMPDIR)/lpass"
 	@rmdir "$(DESTDIR)$(MANDIR)/man1" "$(DESTDIR)$(BINDIR)" 2>/dev/null || true
 
 clean:
