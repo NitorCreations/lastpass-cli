@@ -62,6 +62,11 @@
 # endif
 #endif
 
+struct app *account_to_app(const struct account *account)
+{
+	return container_of(account, struct app, account);
+}
+
 void share_free(struct share *share)
 {
 	if (!share)
@@ -85,23 +90,9 @@ void field_free(struct field *field)
 	free(field);
 }
 
-bool account_is_group(struct account *account)
-{
-	return !strcmp(account->url, "http://group");
-}
-
-struct account *new_account()
-{
-	struct account *account = new0(struct account, 1);
-	INIT_LIST_HEAD(&account->field_head);
-	return account;
-}
-
-void account_free(struct account *account)
+void account_free_contents(struct account *account)
 {
 	struct field *field, *tmp;
-	if (!account)
-		return;
 
 	free(account->id);
 	free(account->name);
@@ -120,6 +111,58 @@ void account_free(struct account *account)
 	list_for_each_entry_safe(field, tmp, &account->field_head, list) {
 		field_free(field);
 	}
+}
+
+void app_free(struct app *app)
+{
+	account_free_contents(&app->account);
+	free(app->appname);
+	free(app->extra);
+	free(app->extra_encrypted);
+	free(app->wintitle);
+	free(app->wininfo);
+	free(app->exeversion);
+	free(app->warnversion);
+	free(app->exehash);
+}
+
+bool account_is_group(struct account *account)
+{
+	return !strcmp(account->url, "http://group");
+}
+
+struct app *new_app()
+{
+	struct app *app = new0(struct app, 1);
+	struct account *account = &app->account;
+
+	app->appname = xstrdup("");
+	app->extra = xstrdup("");
+
+	INIT_LIST_HEAD(&account->field_head);
+	account->is_app = true;
+
+	return app;
+}
+
+struct account *new_account()
+{
+	struct account *account = new0(struct account, 1);
+	INIT_LIST_HEAD(&account->field_head);
+	return account;
+}
+
+void account_free(struct account *account)
+{
+	if (!account)
+		return;
+
+	if (account->is_app) {
+		app_free(account_to_app(account));
+		return;
+	}
+
+	account_free_contents(account);
 	free(account);
 }
 
@@ -266,30 +309,33 @@ static int read_boolean(struct chunk *chunk)
 	return item.data[0] == '1';
 }
 
-#define entry_plain(var) do { \
+#define entry_plain_at(base, var) do { \
 	char *__entry_val__ = read_plain_string(chunk); \
 	if (!__entry_val__) \
 		goto error; \
-	parsed->var = __entry_val__; \
+	base->var = __entry_val__; \
 	} while (0)
-#define entry_hex(var) do { \
+#define entry_plain(var) entry_plain_at(parsed, var)
+#define entry_hex_at(base, var) do { \
 	char *__entry_val__ = read_hex_string(chunk); \
 	if (!__entry_val__) \
 		goto error; \
-	parsed->var = __entry_val__; \
+	base->var = __entry_val__; \
 	} while (0)
+#define entry_hex(var) entry_hex_at(parsed, var)
 #define entry_boolean(var) do { \
 	int __entry_val__ = read_boolean(chunk); \
 	if (__entry_val__ < 0) \
 		goto error; \
 	parsed->var = __entry_val__; \
 	} while (0)
-#define entry_crypt(var) do { \
-	char *__entry_val__ = read_crypt_string(chunk, key, &parsed->var##_encrypted); \
+#define entry_crypt_at(base, var) do { \
+	char *__entry_val__ = read_crypt_string(chunk, key, &base->var##_encrypted); \
 	if (!__entry_val__) \
 		goto error; \
-	parsed->var = __entry_val__; \
+	base->var = __entry_val__; \
 	} while (0)
+#define entry_crypt(var) entry_crypt_at(parsed, var)
 #define skip(placeholder) do { \
 	struct item skip_item; \
 	if (!read_item(chunk, &skip_item)) \
@@ -375,6 +421,20 @@ error:
 	return NULL;
 }
 
+static struct field *app_field_parse(struct chunk *chunk, const unsigned char key[KDF_HASH_LEN])
+{
+	struct field *parsed = new0(struct field, 1);
+
+	entry_plain(name);
+	entry_crypt(value);
+	entry_plain(type);
+
+	return parsed;
+error:
+	field_free(parsed);
+	return NULL;
+}
+
 static struct share *share_parse(struct chunk *chunk, const struct private_key *private_key)
 {
 	struct share *parsed = new0(struct share, 1);
@@ -426,10 +486,50 @@ error:
 	return NULL;
 }
 
+static struct app *app_parse(struct chunk *chunk, const unsigned char key[KDF_HASH_LEN])
+{
+	struct app *app = new_app();
+	struct account *parsed = &app->account;
+
+	entry_plain(id);
+	entry_hex_at(app, appname);
+	entry_crypt_at(app, extra);
+	entry_crypt(name);
+	entry_crypt(group);
+	entry_plain(last_touch);
+	skip(fiid);
+	entry_boolean(pwprotect);
+	entry_boolean(fav);
+	entry_plain_at(app, wintitle);
+	entry_plain_at(app, wininfo);
+	entry_plain_at(app, exeversion);
+	skip(autologin);
+	entry_plain_at(app, warnversion);
+	entry_plain_at(app, exehash);
+
+	parsed->username = xstrdup("");
+	parsed->password = xstrdup("");
+	parsed->note = xstrdup("");
+	parsed->url = xstrdup("");
+
+	if (strlen(parsed->group) &&
+	    (strlen(parsed->name) || account_is_group(parsed)))
+		xasprintf(&parsed->fullname, "%s/%s", parsed->group, parsed->name);
+	else
+		parsed->fullname = xstrdup(parsed->name);
+
+	return app;
+error:
+	app_free(app);
+	return NULL;
+}
+
 #undef entry_plain
+#undef entry_plain_at
 #undef entry_hex
 #undef entry_boolean
 #undef entry_crypt
+#undef entry_crypt_at
 #undef skip
 
 struct blob *blob_parse(const unsigned char *blob, size_t len, const unsigned char key[KDF_HASH_LEN], const struct private_key *private_key)
@@ -439,6 +539,7 @@ struct blob *blob_parse(const unsigned char *blob, size_t len, const unsigned ch
 	struct account *account = NULL;
 	struct field *field;
 	struct share *share, *last_share = NULL;
+	struct app *app = NULL;
 	struct blob *parsed;
 	_cleanup_free_ char *versionstr = NULL;
 
@@ -475,13 +576,24 @@ struct blob *blob_parse(const unsigned char *blob, size_t len, const unsigned ch
 				goto error;
 
 			list_add_tail(&field->list, &account->field_head);
-		} else if (!strcmp(chunk.name, "LOCL"))
+		} else if (!strcmp(chunk.name, "LOCL")) {
 			parsed->local_version = true;
-		else if (!strcmp(chunk.name, "SHAR")) {
+		} else if (!strcmp(chunk.name, "SHAR")) {
 			share = share_parse(&chunk, private_key);
 			last_share = share;
 			if (share)
 				list_add_tail(&share->list, &parsed->share_head);
+		} else if (!strcmp(chunk.name, "AACT")) {
+			app = app_parse(&chunk, last_share ? last_share->key : key);
+			if (app)
+				list_add_tail(&app->account.list, &parsed->account_head);
+		} else if (!strcmp(chunk.name, "AACF")) {
+			if (!app)
+				goto error;
+			field = app_field_parse(&chunk, last_share ? last_share->key : key);
+			if (!field)
+				goto error;
+			list_add_tail(&field->list, &app->account.field_head);
 		}
 	}
 
@@ -555,10 +667,52 @@ static void write_chunk(struct buffer *dstbuffer, struct buffer *srcbuffer, char
 	write_item(dstbuffer, srcbuffer->bytes, srcbuffer->len);
 }
 
+static void write_app_chunk(struct buffer *buffer, struct account *account)
+{
+	struct buffer accbuf, fieldbuf;
+	struct field *field;
+	struct app *app = account_to_app(account);
+
+	memset(&accbuf, 0, sizeof(accbuf));
+	write_plain_string(&accbuf, account->id);
+	write_hex_string(&accbuf, app->appname);
+	write_crypt_string(&accbuf, app->extra_encrypted);
+	write_crypt_string(&accbuf, account->name_encrypted);
+	write_crypt_string(&accbuf, account->group_encrypted);
+	write_plain_string(&accbuf, "skipped");
+	write_plain_string(&accbuf, "skipped");
+	write_boolean(&accbuf, account->pwprotect);
+	write_boolean(&accbuf, account->fav);
+	write_plain_string(&accbuf, "skipped");
+	write_plain_string(&accbuf, "skipped");
+	write_plain_string(&accbuf, "skipped");
+	write_plain_string(&accbuf, "skipped");
+	write_plain_string(&accbuf, "skipped");
+	write_plain_string(&accbuf, "skipped");
+	write_chunk(buffer, &accbuf, "AACT");
+	free(accbuf.bytes);
+	list_for_each_entry(field, &account->field_head, list) {
+		memset(&fieldbuf, 0, sizeof(fieldbuf));
+		write_plain_string(&fieldbuf, field->name);
+		if (!strcmp(field->type, "email") || !strcmp(field->type, "tel") || !strcmp(field->type, "text") || !strcmp(field->type, "password") || !strcmp(field->type, "textarea"))
+			write_crypt_string(&fieldbuf, field->value_encrypted);
+		else
+			write_plain_string(&fieldbuf, field->value);
+		write_plain_string(&fieldbuf, field->type);
+		write_chunk(buffer, &fieldbuf, "AACF");
+		free(fieldbuf.bytes);
+	}
+}
+
 static void write_account_chunk(struct buffer *buffer, struct account *account)
 {
 	struct buffer accbuf, fieldbuf;
 	struct field *field;
+
+	if (account->is_app) {
+		write_app_chunk(buffer, account);
+		return;
+	}
 
 	memset(&accbuf, 0, sizeof(accbuf));
 	write_plain_string(&accbuf, account->id);
@@ -762,6 +916,16 @@ void account_set_url(struct account *account, char *url, unsigned const char key
 	UNUSED(key);
 	set_field(account, url);
 }
+void account_set_appname(struct account *account, char *appname, unsigned const char key[KDF_HASH_LEN])
+{
+	UNUSED(key);
+	struct app *app;
+	if (!account->is_app)
+		return;
+
+	app = account_to_app(account);
+	set_field(app, appname);
+}
 void field_set_value(struct account *account, struct field *field, char *value, unsigned const char key[KDF_HASH_LEN])
 {
 	if (!strcmp(field->type, "email") || !strcmp(field->type, "tel") || !strcmp(field->type, "text") || !strcmp(field->type, "password") || !strcmp(field->type, "textarea"))
@@ -855,8 +1019,10 @@ void account_assign_share(struct blob *blob, struct account *account,
 
 	/* strip off shared groupname */
 	char *slash = strchr(name, '/');
-	if (!slash)
-		die("Shared folder name has improper format");
+	if (!slash) {
+		account->share = NULL;
+		goto reencrypt;
+	}
 
 	shared_name = xstrndup(name, slash - name);
 
@@ -874,6 +1040,7 @@ void account_assign_share(struct blob *blob, struct account *account,
 	if (share)
 		account_set_group_name(account, slash + 1, key);
 
+reencrypt:
 	if (old_share != account->share)
 		account_reencrypt(account, key);
 }

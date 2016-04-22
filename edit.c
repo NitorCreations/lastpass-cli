@@ -148,14 +148,22 @@ static void assign_account_value(struct account *account,
 	assign_if("URL", url);
 	assign_if("Username", username);
 	assign_if("Password", password);
+	assign_if("Application", appname);
 
 	/* if we got here maybe it's a secure note field */
 	list_for_each_entry(editable_field, &account->field_head, list) {
 		if (!strcmp(label, editable_field->name)) {
 			field_set_value(account, editable_field, value, key);
-			break;
+			return;
 		}
 	}
+
+	/* Some other name: value pair -- treat like a new field */
+	editable_field = new0(struct field, 1);
+	editable_field->name = xstrdup(label);
+	editable_field->type = xstrdup("password");
+	field_set_value(account, editable_field, value, key);
+	list_add_tail(&editable_field->list, &account->field_head);
 
 #undef assign_if
 }
@@ -239,9 +247,68 @@ static void parse_account_file(FILE *input, struct account *account,
 	account_set_note(account, value, key);
 }
 
-static int write_account_file(FILE *fp, struct account *account)
+static
+struct field *add_default_field(struct account *account,
+			        const char *field_name,
+			        unsigned char key[KDF_HASH_LEN])
 {
 	struct field *editable_field = NULL;
+	bool found = false;
+
+	list_for_each_entry(editable_field, &account->field_head, list) {
+		if (!strcmp(editable_field->name, field_name)) {
+			found = true;
+			break;
+		}
+	}
+	if (found)
+		return editable_field;
+
+	editable_field = new0(struct field, 1);
+	editable_field->type = xstrdup("text");
+	editable_field->name = xstrdup(field_name);
+	field_set_value(account, editable_field, xstrdup(""), key);
+
+	list_add_tail(&editable_field->list, &account->field_head);
+	return editable_field;
+}
+
+static void add_default_fields(struct account *account,
+			       enum note_type note_type,
+			       unsigned char key[KDF_HASH_LEN])
+{
+	int i;
+	struct note_template *tmpl;
+
+	if (note_type <= NOTE_TYPE_NONE || note_type >= NUM_NOTE_TYPES)
+		return;
+
+	/*
+	 * Add a new, empty field for any label in the template which
+	 * does not already exist in the account.
+	 */
+	tmpl = &note_templates[note_type];
+	for (i=0; tmpl->fields[i]; i++)
+		add_default_field(account, tmpl->fields[i], key);
+}
+
+enum note_type get_note_type(struct account *account)
+{
+	struct field *editable_field;
+
+	list_for_each_entry(editable_field, &account->field_head, list) {
+		if (!strcmp(editable_field->name, "NoteType")) {
+			return notes_get_type_by_name(editable_field->value);
+		}
+	}
+	return NOTE_TYPE_NONE;
+}
+
+static int write_account_file(FILE *fp, struct account *account,
+			      unsigned char key[KDF_HASH_LEN])
+{
+	struct field *editable_field = NULL;
+	enum note_type note_type;
 
 #define write_field(title, field) do { \
 	if (fprintf(fp, "%s: %s\n", title, field) < 0) \
@@ -249,9 +316,20 @@ static int write_account_file(FILE *fp, struct account *account)
 	} while (0)
 
 	write_field("Name", account->fullname);
-	write_field("URL", account->url);
-	write_field("Username", account->username);
-	write_field("Password", account->password);
+
+	note_type = get_note_type(account);
+
+	if (account->is_app) {
+		struct app *app = account_to_app(account);
+
+		write_field("Application", app->appname);
+	} else if (note_type) {
+		add_default_fields(account, note_type, key);
+	} else {
+		write_field("URL", account->url);
+		write_field("Username", account->username);
+		write_field("Password", account->password);
+	}
 
 	list_for_each_entry(editable_field, &account->field_head, list) {
 		write_field(editable_field->name, editable_field->value);
@@ -308,18 +386,7 @@ int edit_account(struct session *session,
 		value = editable->fullname;
 		break;
 	case EDIT_FIELD:
-		list_for_each_entry(editable_field, &editable->field_head, list) {
-			if (!strcmp(editable_field->name, field))
-				break;
-		}
-		if (!editable_field) {
-			editable_field = new0(struct field, 1);
-			editable_field->type = xstrdup("text");
-			editable_field->name = xstrdup(field);
-			field_set_value(editable, editable_field, xstrdup(""), key);
-
-			list_add(&editable_field->list, &editable->field_head);
-		}
+		editable_field = add_default_field(editable, field, key);
 		value = editable_field->value;
 		break;
 	case EDIT_NOTES:
@@ -354,7 +421,7 @@ int edit_account(struct session *session,
 			die_unlink_errno("fdopen", tmppath, tmpdir);
 
 		if (choice == EDIT_ANY) {
-			if (write_account_file(tmpfile, editable))
+			if (write_account_file(tmpfile, editable, key))
 				die_unlink_errno("fprintf", tmppath, tmpdir);
 		} else {
 			if (fprintf(tmpfile, "%s\n", value) < 0)
@@ -445,24 +512,44 @@ int edit_new_account(struct session *session,
 		     enum edit_choice choice,
 		     const char *field,
 		     bool non_interactive,
+		     bool is_app,
+		     enum note_type note_type,
 		     unsigned char key[KDF_HASH_LEN])
 {
+	struct app *app;
 	struct account *account;
 
-	account = new_account();
+	if (note_type != NOTE_TYPE_NONE &&
+	    choice != EDIT_NOTES && choice != EDIT_ANY) {
+		die("Note type may only be used with secure notes");
+	}
+
+	if (is_app) {
+		app = new_app();
+		account = &app->account;
+	} else {
+		account = new_account();
+	}
 
 	account->id = xstrdup("0");
 	account_set_password(account, xstrdup(""), key);
 	account_set_fullname(account, xstrdup(name), key);
 	account_set_username(account, xstrdup(""), key);
 	account_set_note(account, xstrdup(""), key);
-	if (choice == EDIT_NOTES) {
+	if (choice == EDIT_NOTES || note_type != NOTE_TYPE_NONE) {
 		account->url = xstrdup("http://sn");
 	} else {
 		account->url = xstrdup("");
 	}
 	account_assign_share(blob, account, key);
 	list_add(&account->list, &blob->account_head);
+
+	if (note_type != NOTE_TYPE_NONE) {
+		char *note_type_str = NULL;
+		xasprintf(&note_type_str, "NoteType:%s\n",
+			  notes_get_name(note_type));
+		account_set_note(account, note_type_str, key);
+	}
 
 	return edit_account(session, blob, sync, account, choice, field,
 			    non_interactive, key);

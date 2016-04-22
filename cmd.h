@@ -47,6 +47,7 @@ void find_matching_substr(struct list_head *accounts, const char *pattern,
 			  int fields, struct list_head *ret_list);
 enum color_mode parse_color_mode_string(const char *colormode);
 bool parse_bool_arg_string(const char *extra);
+enum note_type parse_note_type_string(const char *extra);
 
 int edit_account(struct session *session,
 		 struct blob *blob,
@@ -64,6 +65,8 @@ int edit_new_account(struct session *session,
 		     enum edit_choice choice,
 		     const char *field,
 		     bool non_interactive,
+		     bool is_app,
+		     enum note_type note_type,
 		     unsigned char key[KDF_HASH_LEN]);
 
 #define color_usage "[--color=auto|never|always]"

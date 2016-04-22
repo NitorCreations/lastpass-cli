@@ -76,11 +76,18 @@ struct blob *lastpass_get_blob(const struct session *session, const unsigned cha
 
 void lastpass_remove_account(enum blobsync sync, unsigned const char key[KDF_HASH_LEN], const struct session *session, const struct account *account, struct blob *blob)
 {
-	++blob->version;
+	struct http_param_set params = {
+		.argv = NULL,
+		.n_alloced = 0
+	};
+
+	http_post_add_params(&params, "extjs", "1", "token", session->token, "delete", "1", "aid", account->id, NULL);
+
 	if (account->share)
-		upload_queue_enqueue(sync, key, session, "show_website.php", "extjs", "1", "token", session->token, "delete", "1", "aid", account->id, "sharedfolderid", account->share->id, NULL);
-	else
-		upload_queue_enqueue(sync, key, session, "show_website.php", "extjs", "1", "token", session->token, "delete", "1", "aid", account->id, NULL);
+		http_post_add_params(&params, "sharedfolderid", account->share->id, NULL);
+
+	++blob->version;
+	upload_queue_enqueue(sync, key, session, "show_website.php", &params);
 }
 
 static char *stringify_field(const struct field *field)
@@ -135,8 +142,35 @@ static char *stringify_fields(const struct list_head *field_head)
 	return field_str;
 }
 
+static void add_app_fields(const struct account *account,
+			   struct http_param_set *params)
+{
+	int index = 0;
+	struct field *field;
+
+	list_for_each_entry(field, &account->field_head, list) {
+		char *id_name, *type_name, *value_name;
+
+		xasprintf(&id_name, "fieldid%d", index);
+		xasprintf(&type_name, "fieldtype%d", index);
+		xasprintf(&value_name, "fieldvalue%d", index);
+
+		http_post_add_params(params,
+				     id_name, field->name,
+				     type_name, field->type,
+				     value_name, field->value_encrypted,
+				     NULL);
+		index++;
+	}
+}
+
 void lastpass_update_account(enum blobsync sync, unsigned const char key[KDF_HASH_LEN], const struct session *session, const struct account *account, struct blob *blob)
 {
+	struct http_param_set params = {
+		.argv = NULL,
+		.n_alloced = 0
+	};
+
 	_cleanup_free_ char *url = NULL;
 	_cleanup_free_ char *fields = NULL;
 
@@ -145,22 +179,43 @@ void lastpass_update_account(enum blobsync sync, unsigned const char key[KDF_HAS
 
 	++blob->version;
 
-	if (account->share)
-		upload_queue_enqueue(sync, key, session, "show_website.php", "extjs", "1",
-				"token", session->token, "aid", account->id,
-				"name", account->name_encrypted, "grouping", account->group_encrypted,
-				"url", url, "username", account->username_encrypted,
-				"password", account->password_encrypted, /* "data", fields,     Removing until server-side catches up. */
-				"pwprotect", account->pwprotect ? "on" : "off",
-				"extra", account->note_encrypted, "sharedfolderid", account->share->id, NULL);
-	else
-		upload_queue_enqueue(sync, key, session, "show_website.php", "extjs", "1",
-				"token", session->token, "aid", account->id,
-				"name", account->name_encrypted, "grouping", account->group_encrypted,
-				"url", url, "username", account->username_encrypted,
-				"password", account->password_encrypted, /* "data", fields,     Removing until server-side catches up. */
-				"pwprotect", account->pwprotect ? "on" : "off",
-				"extra", account->note_encrypted, NULL);
+	http_post_add_params(&params,
+			     "extjs", "1",
+			     "token", session->token,
+			     "name", account->name_encrypted,
+			     "grouping", account->group_encrypted,
+			     "pwprotect", account->pwprotect ? "on" : "off",
+			     NULL);
+
+	if (account->share) {
+		http_post_add_params(&params,
+				     "sharedfolderid", account->share->id,
+				     NULL);
+	}
+	if (account->is_app) {
+		struct app *app = account_to_app(account);
+
+		http_post_add_params(&params,
+				     "ajax", "1",
+				     "cmd", "updatelpaa",
+				     "appname", app->appname,
+				     NULL);
+		add_app_fields(account, &params);
+		if (strcmp(account->id, "0"))
+			http_post_add_params(&params, "appaid", account->id, NULL);
+
+		upload_queue_enqueue(sync, key, session, "addapp.php", &params);
+
+	} else {
+		http_post_add_params(&params,
+				     "aid", account->id,
+				     "url", url,
+				     "username", account->username_encrypted,
+				     "password", account->password_encrypted,
+				     "extra", account->note_encrypted,
+				     NULL);
+		upload_queue_enqueue(sync, key, session, "show_website.php", &params);
+	}
 }
 
 unsigned long long lastpass_get_blob_version(struct session *session, unsigned const char key[KDF_HASH_LEN])
@@ -179,12 +234,20 @@ unsigned long long lastpass_get_blob_version(struct session *session, unsigned c
 
 void lastpass_log_access(enum blobsync sync, const struct session *session, unsigned const char key[KDF_HASH_LEN], const struct account *account)
 {
+	struct http_param_set params = {
+		.argv = NULL,
+		.n_alloced = 0
+	};
+
 	if (!strcmp(account->id, "0"))
 		return;
-	if (!account->share)
-		upload_queue_enqueue(sync, key, session, "loglogin.php", "id", account->id, "method", "cli", NULL);
-	else
-		upload_queue_enqueue(sync, key, session, "loglogin.php", "id", account->id, "method", "cli", "sharedfolderid", account->share->id, NULL);
+
+	http_post_add_params(&params, "id", account->id, "method", "cli", NULL);
+
+	if (account->share)
+		http_post_add_params(&params, "sharedfolderid", account->share->id, NULL);
+
+	upload_queue_enqueue(sync, key, session, "loglogin.php", &params);
 }
 
 

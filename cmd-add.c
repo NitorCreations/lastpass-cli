@@ -58,7 +58,9 @@ int cmd_add(int argc, char **argv)
 		{"url", no_argument, NULL, 'L'},
 		{"field", required_argument, NULL, 'F'},
 		{"notes", no_argument, NULL, 'O'},
+		{"app", no_argument, NULL, 'a'},
 		{"non-interactive", no_argument, NULL, 'X'},
+		{"note-type", required_argument, NULL, 'T'},
 		{"color", required_argument, NULL, 'C'},
 		{0, 0, 0, 0}
 	};
@@ -69,6 +71,8 @@ int cmd_add(int argc, char **argv)
 	bool non_interactive = false;
 	enum blobsync sync = BLOB_SYNC_AUTO;
 	enum edit_choice choice = EDIT_ANY;
+	enum note_type note_type = NOTE_TYPE_NONE;
+	bool is_app = false;
 
 	#define ensure_choice() if (choice != EDIT_ANY) goto choice_die;
 	while ((option = getopt_long(argc, argv, "up", long_options, &option_index)) != -1) {
@@ -100,6 +104,12 @@ int cmd_add(int argc, char **argv)
 			case 'X':
 				non_interactive = true;
 				break;
+			case 'a':
+				is_app = true;
+				break;
+			case 'T':
+				note_type = parse_note_type_string(optarg);
+				break;
 			case 'C':
 				terminal_set_color_mode(
 					parse_color_mode_string(optarg));
@@ -120,5 +130,5 @@ int cmd_add(int argc, char **argv)
 	init_all(sync, key, &session, &blob);
 
 	return edit_new_account(session, blob, sync, name, choice, field,
-				non_interactive, key);
+				non_interactive, is_app, note_type, key);
 }
