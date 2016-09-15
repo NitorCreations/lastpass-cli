@@ -9,7 +9,7 @@ endif
 ifeq "$(LIBXML_VERSION)" ""
 LIBXML_VERSION := 2.9.3
 endif
-COMPDIR ?= $(shell pkg-config --variable=completionsdir bash-completion || echo /usr/share/bash-completion/completions)
+COMPDIR ?= $(shell pkg-config --variable=completionsdir bash-completion 2>/dev/null || echo $(PREFIX)/share/bash-completion/completions)
 
 CFLAGS ?= -O3 -march=native -fomit-frame-pointer -pipe
 CFLAGS += -std=gnu99 -D_GNU_SOURCE
@@ -19,7 +19,8 @@ CFLAGS += -MMD
 UNAME_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 ifeq ($(UNAME_S),Darwin)
 HAS_XCODE := $(shell sh -c 'xcodebuild -version 2>/dev/null && echo 1')
-CFLAGS += -Wno-deprecated-declarations
+CFLAGS += -Wno-deprecated-declarations -I/usr/local/opt/openssl/include
+LDFLAGS += -L/usr/local/opt/openssl/lib
 endif
 
 ifeq ($(HAS_XCODE),1)

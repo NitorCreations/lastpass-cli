@@ -1,5 +1,5 @@
 /*
- * command for adding vault entries
+ * command to get the status of the LastPass agent
  *
  * Copyright (C) 2014-2016 LastPass.
  *
@@ -33,82 +33,35 @@
  *
  * See LICENSE.OpenSSL for more details regarding this exception.
  */
+#include "agent.h"
 #include "cmd.h"
 #include "util.h"
 #include "config.h"
 #include "terminal.h"
 #include "kdf.h"
-#include "endpoints.h"
-#include "agent.h"
+#include "upload-queue.h"
 #include <getopt.h>
 #include <stdio.h>
-#include <unistd.h>
 #include <string.h>
-#include <errno.h>
+#include <unistd.h>
 
-int cmd_add(int argc, char **argv)
+int cmd_status(int argc, char **argv)
 {
 	unsigned char key[KDF_HASH_LEN];
-	struct session *session = NULL;
-	struct blob *blob = NULL;
 	static struct option long_options[] = {
-		{"sync", required_argument, NULL, 'S'},
-		{"username", no_argument, NULL, 'u'},
-		{"password", no_argument, NULL, 'p'},
-		{"url", no_argument, NULL, 'L'},
-		{"field", required_argument, NULL, 'F'},
-		{"notes", no_argument, NULL, 'O'},
-		{"app", no_argument, NULL, 'a'},
-		{"non-interactive", no_argument, NULL, 'X'},
-		{"note-type", required_argument, NULL, 'T'},
+		{"quiet", no_argument, NULL, 'q'},
 		{"color", required_argument, NULL, 'C'},
 		{0, 0, 0, 0}
 	};
 	int option;
 	int option_index;
-	_cleanup_free_ char *field = NULL;
-	char *name;
-	bool non_interactive = false;
-	enum blobsync sync = BLOB_SYNC_AUTO;
-	enum edit_choice choice = EDIT_ANY;
-	enum note_type note_type = NOTE_TYPE_NONE;
-	bool is_app = false;
+	bool quiet = false;
+	_cleanup_free_ char *username = NULL;
 
-	#define ensure_choice() if (choice != EDIT_ANY) goto choice_die;
-	while ((option = getopt_long(argc, argv, "up", long_options, &option_index)) != -1) {
+	while ((option = getopt_long(argc, argv, "q", long_options, &option_index)) != -1) {
 		switch (option) {
-			case 'S':
-				sync = parse_sync_string(optarg);
-				break;
-			case 'u':
-				ensure_choice();
-				choice = EDIT_USERNAME;
-				break;
-			case 'p':
-				ensure_choice();
-				choice = EDIT_PASSWORD;
-				break;
-			case 'L':
-				ensure_choice();
-				choice = EDIT_URL;
-				break;
-			case 'F':
-				ensure_choice();
-				choice = EDIT_FIELD;
-				field = xstrdup(optarg);
-				break;
-			case 'O':
-				ensure_choice();
-				choice = EDIT_NOTES;
-				break;
-			case 'X':
-				non_interactive = true;
-				break;
-			case 'a':
-				is_app = true;
-				break;
-			case 'T':
-				note_type = parse_note_type_string(optarg);
+			case 'q':
+				quiet = true;
 				break;
 			case 'C':
 				terminal_set_color_mode(
@@ -116,19 +69,20 @@ int cmd_add(int argc, char **argv)
 				break;
 			case '?':
 			default:
-				die_usage(cmd_add_usage);
+				die_usage(cmd_status_usage);
 		}
 	}
-	#undef ensure_choice
 
-	if (argc - optind != 1)
-		die_usage(cmd_add_usage);
-	if (choice == EDIT_NONE)
-		choice_die: die_usage("add ... {--username|--password|--url|--notes|--field=FIELD|--note-type=NOTE_TYPE}");
-	name = argv[optind];
-
-	init_all(sync, key, &session, &blob);
-
-	return edit_new_account(session, blob, sync, name, choice, field,
-				non_interactive, is_app, note_type, key);
+	if (!agent_ask(key)) {
+		if(!quiet) {
+			terminal_printf(TERMINAL_FG_RED TERMINAL_BOLD "Not logged in" TERMINAL_RESET ".\n");
+		}
+		return 1;
+	} else {
+		if(!quiet) {
+			username = config_read_string("username");
+			terminal_printf(TERMINAL_FG_GREEN TERMINAL_BOLD "Logged in" TERMINAL_RESET " as " TERMINAL_UNDERLINE "%s" TERMINAL_RESET ".\n", username);
+		}
+		return 0;
+	}
 }

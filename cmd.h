@@ -84,10 +84,10 @@ int cmd_show(int argc, char **argv);
 #define cmd_show_usage "show [--sync=auto|now|no] [--clip, -c] [--expand-multi, -x] [--all|--username|--password|--url|--notes|--field=FIELD|--id|--name] [--basic-regexp, -G|--fixed-strings, -F] " color_usage " {UNIQUENAME|UNIQUEID}"
 
 int cmd_ls(int argc, char **argv);
-#define cmd_ls_usage "ls [--sync=auto|now|no] [--long, -l] " color_usage " [GROUP]"
+#define cmd_ls_usage "ls [--sync=auto|now|no] [--long, -l] [-m] [-u] " color_usage " [GROUP]"
 
 int cmd_add(int argc, char **argv);
-#define cmd_add_usage "add [--sync=auto|now|no] [--non-interactive] " color_usage " {--username|--password|--url|--notes|--field=FIELD} NAME"
+#define cmd_add_usage "add [--sync=auto|now|no] [--non-interactive] " color_usage " {--username|--password|--url|--notes|--field=FIELD|--note-type=NOTETYPE} NAME"
 
 int cmd_edit(int argc, char **argv);
 #define cmd_edit_usage "edit [--sync=auto|now|no] [--non-interactive] " color_usage " {--name|--username|--password|--url|--notes|--field=FIELD} {NAME|UNIQUEID}"
@@ -100,6 +100,9 @@ int cmd_duplicate(int argc, char **argv);
 
 int cmd_rm(int argc, char **argv);
 #define cmd_rm_usage "rm [--sync=auto|now|no] " color_usage " {UNIQUENAME|UNIQUEID}"
+
+int cmd_status(int argc, char **argv);
+#define cmd_status_usage "status [--quiet, -q] " color_usage
 
 int cmd_sync(int argc, char **argv);
 #define cmd_sync_usage "sync [--background, -b] " color_usage

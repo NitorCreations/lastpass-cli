@@ -27,10 +27,12 @@ several subcommands:
  lpass *show* [--sync=auto|now|no] [--clip, -c] [--expand-multi, -x] [--all|--username|--password|--url|--notes|--field=FIELD|--id|--name] [--basic-regexp, -G|--fixed-strings, -F] [--color=auto|never|always] {NAME|UNIQUEID}*
  lpass *ls* [--sync=auto|now|no] [--long, -l] [-m] [-u] [--color=auto|never|always] [GROUP]
  lpass *mv* [--sync=auto|now|no] [--color=auto|never|always] {UNIQUENAME|UNIQUEID} GROUP
+ lpass *add* [--sync=auto|now|no] [--non-interactive] {--name|--username, -u|--password, -p|--url|--notes|--field=FIELD|--note-type=NOTETYPE} [--color=auto|never|always] {NAME|UNIQUEID}
  lpass *edit* [--sync=auto|now|no] [--non-interactive] {--name|--username, -u|--password, -p|--url|--notes|--field=FIELD} [--color=auto|never|always] {NAME|UNIQUEID}
  lpass *generate* [--sync=auto|now|no] [--clip, -c] [--username=USERNAME] [--url=URL] [--no-symbols] [--color=auto|never|always] {NAME|UNIQUEID} LENGTH
  lpass *duplicate* [--sync=auto|now|no] [--color=auto|never|always] {UNIQUENAME|UNIQUEID}
  lpass *rm* [--sync=auto|now|no] [--color=auto|never|always] {UNIQUENAME|UNIQUEID}
+ lpass *status* [--quiet, -q] [--color=auto|never|always]
  lpass *sync* [--background, -b] [--color=auto|never|always]
  lpass *export* [--sync=auto|now|no] [--color=auto|never|always]
  lpass *share* *userls* SHARE
@@ -80,7 +82,7 @@ environment variable is set to 1, passwords will be read from standard input and
 prompt will be displayed on standard error.
 
 The program used for inputting passwords may also be configured by setting the
-'LPASS_ASKPASS` environment variable. 'LPASS_ASKPASS' is expected to be a
+'LPASS_ASKPASS' environment variable. 'LPASS_ASKPASS' is expected to be a
 binary that produces a prompt using its first command-line argument, and
 outputs the entered password to standard out.  ssh-askpass implements this
 protocol, as does the following shell script:
@@ -104,19 +106,21 @@ new entry if a 'NAME' is specified and otherwise overwrite an existing entry if
 
 Logging In
 ~~~~~~~~~~
-The 'login' subcommand will initialize a cache and configuration folder inside
-the current user's home directory – '~/.lpass' – or in the directory specified
-by the environment variable 'LPASS_HOME'. It will then attempt to
-authenticate itself with the LastPass servers, using the provided command line
-credentials or by interactively prompting (in the case of multifactor or an
-unprovided password). The '--trust' option will cause subsequent logins to not
-require multifactor authentication. If the '--plaintext-key' option is
-specified, the decryption key will be saved to the hard disk in plaintext.
-Please note that use of this option is discouraged except in limited
-situations, as it greatly decreases the security of data.
+The 'login' subcommand will initialize a local cache and configuration folder,
+then attempt to authenticate itself with the LastPass servers, using the
+provided command line credentials or by interactively prompting (in the case of
+multifactor or an unprovided password). The '--trust' option will cause
+subsequent logins to not require multifactor authentication. If the
+'--plaintext-key' option is specified, the decryption key will be saved to the
+hard disk in plaintext.  Please note that use of this option is discouraged
+except in limited situations, as it greatly decreases the security of data.
 
 The 'logout' subcommand will remove the local cache and stored encryption
 keys. It will prompt the user to confirm, unless '--force' is specified.
+
+The 'passwd' subcommand may be used to change your LastPass password:
+it will prompt for the old and new password and then re-encrypt all records
+with the newly derived key.
 
 Viewing
 ~~~~~~~
@@ -179,8 +183,17 @@ is used, no color escape sequences are emitted.
 
 Configuration
 ~~~~~~~~~~~~~
+'lpass' stores configuration in the following locations, in descending
+order of precedence:
+
+* The directory '$LPASS_HOME', if set
+* '$XDG_CONFIG_HOME/lpass', '$XDG_DATA_HOME/lpass', and
+  '$XDG_RUNTIME_DIR/lpass' (or equivalent defaults), if at least
+  '$XDG_RUNTIME_DIR' is set
+* '$HOME/.lpass'
+
 All configuration may be specified via environment variables. Alternatively, a
-set of environment variable overrides may be specified in '~/.lpass/env' in
+set of environment variable overrides may be specified in '$LPASS_HOME/env' in
 the form of:
 
 [verse]
@@ -200,3 +213,20 @@ in the section above:
 * 'LPASS_DISABLE_PINENTRY'
 * 'LPASS_ASKPASS'
 * 'LPASS_CLIPBOARD_COMMAND'
+
+EXAMPLES
+--------
+
+----
+$ lpass login user@example.com
+$ lpass generate work/email 20
+G</Czo4*c;A+g;KIHkO-
+$ lpass ls work
+work
+    email [id: 140613939481239829]
+$ lpass show -p email
+G</Czo4*c;A+g;KIHkO-
+$ lpass add --note-type=ssn work/my-ssn
+----
+
+

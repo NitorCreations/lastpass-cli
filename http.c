@@ -34,6 +34,7 @@
  * See LICENSE.OpenSSL for more details regarding this exception.
  */
 #include "http.h"
+#include "log.h"
 #include "util.h"
 #include "version.h"
 #include "pins.h"
@@ -196,6 +197,12 @@ void vhttp_post_add_params(struct http_param_set *param_set, va_list args)
 	*argv_ptr = 0;
 }
 
+int http_init()
+{
+	curl_global_cleanup();
+	return curl_global_init(CURL_GLOBAL_DEFAULT);
+}
+
 void http_post_add_params(struct http_param_set *param_set, ...)
 {
 	va_list args;
@@ -232,6 +239,7 @@ char *http_post_lastpass_v_noexit(const char *server, const char *page, const st
 	_cleanup_free_ char *url = NULL;
 	_cleanup_free_ char *postdata = NULL;
 	_cleanup_free_ char *cookie = NULL;
+	_cleanup_fclose_ FILE *logstream = NULL;
 	char *param, *encoded_param;
 	CURL *curl = NULL;
 	char separator;
@@ -248,6 +256,8 @@ char *http_post_lastpass_v_noexit(const char *server, const char *page, const st
 		login_server = LASTPASS_SERVER;
 
 	xasprintf(&url, "https://%s/%s", login_server, page);
+
+	lpass_log(LOG_DEBUG, "Making request to %s\n", url);
 
 	curl = curl_easy_init();
 	if (!curl)
@@ -277,6 +287,14 @@ char *http_post_lastpass_v_noexit(const char *server, const char *page, const st
 	}
 	curl_easy_setopt(curl, CURLOPT_URL, url);
 	curl_easy_setopt(curl, CURLOPT_USERAGENT, LASTPASS_CLI_USERAGENT);
+
+	if (lpass_log_level() >= LOG_VERBOSE) {
+		logstream = lpass_log_open();
+		if (logstream) {
+			curl_easy_setopt(curl, CURLOPT_STDERR, logstream);
+			curl_easy_setopt(curl, CURLOPT_VERBOSE, 1);
+		}
+	}
 #if defined(DO_NOT_ENABLE_ME_MITM_PROXY_FOR_DEBUGGING_ONLY)
 	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0);
 	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
