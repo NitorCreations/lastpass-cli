@@ -32,7 +32,7 @@ CC := gcc -static-libgcc
 CFLAGS += -I./libxml2-$(LIBXML_VERSION)/include/ -I./curl-$(CURL_VERSION)/include/ -I/usr/include
 LDLIBS = ./curl-$(CURL_VERSION)/lib/.libs/libcurl.a ./libxml2-$(LIBXML_VERSION)/.libs/libxml2.a
 LDLIBS +=  /usr/lib/x86_64-linux-gnu/libdl.a /usr/lib/x86_64-linux-gnu/liblzma.a
-LDLIBS += /usr/lib/x86_64-linux-gnu/libm.a /usr/lib/x86_64-linux-gnu/libz.a
+LDLIBS +=  /usr/lib/x86_64-linux-gnu/libz.a
 LDLIBS += /usr/lib/x86_64-linux-gnu/libssl.a /usr/lib/x86_64-linux-gnu/libcrypto.a
 LDLIBS += -ldl -lm -lz -lssl -lcrypto
 ifeq ($(UNAME_S),OpenBSD)
